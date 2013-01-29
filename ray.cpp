@@ -16,7 +16,7 @@ coord_t normalize(coord_t a);
 
 
 
-int main() {
+int main(int argc, char *argv[]) {
 
   //2D Array of Pixels(Colors)
   double xmax = 1023;
