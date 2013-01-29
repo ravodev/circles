@@ -14,11 +14,11 @@ coord_t cross_prod(coord_t a, coord_t b);
 double dot_prod(coord_t a, coord_t b);
 coord_t normalize(coord_t a);
 
-// __device__ SphereIntersectionTest
-// __device__ PlaneIntersectionTest
-// __device__ DirectIllumination
-// __device__ CastRay 
-// __global__ RayTrace
+// __device__ float SphereIntersectionTest(sphere_t, ray_t)
+// in global memory: coord_t point, eye_t camera, light_t light, color_t ambience, sphere_t* spheres
+// __device__ DirectIllumination(sphere_t, ray_t, float)
+// __device__ CastRay(sphere_t spheres[], int num_spheres)
+// __global__ RayTrace(ray_t rays[], sphere_t spheres[], int num_spheres, int num_rays, output_buffer) 
 
 int main(int argc, char *argv[]) {
 
