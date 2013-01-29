@@ -20,6 +20,8 @@ coord_t normalize(coord_t a);
 // __device__ CastRay(sphere_t spheres[], int num_spheres)
 // __global__ RayTrace(ray_t rays[], sphere_t spheres[], int num_spheres, int num_rays, output_buffer) 
 
+__global__ void RayTrace(
+
 int main(int argc, char *argv[]) {
 
   //2D Array of Pixels(Colors)
@@ -64,20 +66,20 @@ int main(int argc, char *argv[]) {
   // Set up sphere(s)
   sphere_t spheres[NUM_SHAPES];
  
-	srand(time(NULL));
+    srand(time(NULL));
 
-	for(int s = 0; s < NUM_SHAPES; s++){
-		spheres[s].center.x = ((double)rand() / ((double)RAND_MAX + 1) *2)-1;
-  		spheres[s].center.y = ((double)rand() / ((double)RAND_MAX + 1) *2)-1;
-  		spheres[s].center.z = 1.5+((double)rand() / ((double)RAND_MAX + 1) *2);
-  		spheres[s].radius = .2;
-  		spheres[s].color.r = ((double)rand() / ((double)RAND_MAX + 1) );
-  		spheres[s].color.g = ((double)rand() / ((double)RAND_MAX + 1) );
-  		spheres[s].color.b = ((double)rand() / ((double)RAND_MAX + 1) );
-  		spheres[s].spec = .5;
-		spheres[s].glos = 5;
-  		spheres[s].name = s;
-	}
+    for(int s = 0; s < NUM_SHAPES; s++){
+        spheres[s].center.x = ((double)rand() / ((double)RAND_MAX + 1) *2)-1;
+        spheres[s].center.y = ((double)rand() / ((double)RAND_MAX + 1) *2)-1;
+        spheres[s].center.z = 1.5+((double)rand() / ((double)RAND_MAX + 1) *2);
+        spheres[s].radius = .2;
+        spheres[s].color.r = ((double)rand() / ((double)RAND_MAX + 1) );
+        spheres[s].color.g = ((double)rand() / ((double)RAND_MAX + 1) );
+        spheres[s].color.b = ((double)rand() / ((double)RAND_MAX + 1) );
+        spheres[s].spec = .5;
+        spheres[s].glos = 5;
+        spheres[s].name = s;
+    }
   
   
   ray_t curRay;
@@ -102,7 +104,8 @@ int main(int argc, char *argv[]) {
   for (int i=xmin-0.5; i < xmax-0.5; i++) {
     for (int j=ymin-0.5; j < ymax-0.5; j++) {
          //Find x and y values at the screen
-         s.x = screen.xmin+(screen.xmax-screen.xmin)*((i+0.5)/abs(xmax-xmin)); //TODO efficentcy+abs
+         // Coords with respect to eye
+         s.x = screen.xmin+(screen.xmax-screen.xmin)*((i+0.5)/abs(xmax-xmin)); 
          s.y = screen.ymin+(screen.ymax-screen.ymin)*((j+0.5)/abs(ymax-ymin)); 
          s.z = screen.z;
          
@@ -119,6 +122,7 @@ int main(int argc, char *argv[]) {
          v = normalize(v);
          n = normalize(n);
          
+         // Convert from eye coordinate system to normal
          s.x = camera.eye.x + s.x*u.x + s.y*v.x + s.z*n.x; 
          s.y = camera.eye.y + s.x*u.y + s.y*v.y + s.z*n.y; 
          s.z = camera.eye.z + s.x*u.z + s.y*v.z + s.z*n.z; 
@@ -151,7 +155,7 @@ int main(int argc, char *argv[]) {
 
             color = lighting(intercept, camera, light, curRay, sphere, ambience, spheres);
             img.pixel(i, j, color);
-            }
+         }
       }       
     }
   
@@ -162,7 +166,44 @@ int main(int argc, char *argv[]) {
   // true to scale to max color, false to clamp to 1.0
 
 }
+__device__ void SphereIntersectionTest(ray_t *ray, sphere_t *sphere, double *t) {
+   double discrim;
+   double t1;
+   double t2;
+   
+   coord_t intercept;
+   
+   coord_t temp;    //camera - center
+   temp.x = ray->start.x - sphere->center.x;
+   temp.y = ray->start.y - sphere->center.y;
+   temp.z = ray->start.z - sphere->center.z;
+  
+   //find and check discriminant
+   discrim = pow(dot_prod(ray->dir, temp), 2) - dot_prod(ray->dir, ray->dir) *
+             dot_prod(temp, temp) - pow(sphere->radius, 2);
+   
+   if (discrim >= 0) {
+      t1 = (-dot_prod(ray.dir,temp) + sqrt(discrim)) /
+           dot_prod(ray.dir,ray.dir);
+      t2 = (-dot_prod(ray.dir,temp) - sqrt(discrim)) /
+           (dot_prod(ray.dir,ray.dir));
+      
+      //Find first intercept at t
+      // Find closer
+      if(t1 <= t2) {
+          *t = t1;
+          return;
+      }
+      else if (t2 <= t1) {
+        *t = t2;
+         return;
+      }
+   }
+   *t = -1
+   return;
+}
 
+()()
 double intercept_sphere(ray_t ray, sphere_t sphere){
 
    double discrim;
@@ -186,6 +227,7 @@ double intercept_sphere(ray_t ray, sphere_t sphere){
       t2 = ((-dot_prod(ray.dir,temp))-(sqrt(discrim)))/(dot_prod(ray.dir,ray.dir));
       
       //Find first intercept at t
+      // Find closer
       if(t1 <= t2){
           return t1;  
       }
@@ -196,7 +238,8 @@ double intercept_sphere(ray_t ray, sphere_t sphere){
    return -1;
 }
 
-color_t lighting(coord_t point, eye_t camera, light_t light, ray_t ray, sphere_t sphere, color_t ambience, sphere_t* spheres){
+color_t lighting(coord_t point, eye_t camera, light_t light, ray_t ray,
+                 sphere_t sphere, color_t ambience, sphere_t* spheres){
    coord_t surfNorm;
    coord_t lightNorm;
    coord_t viewNorm;
