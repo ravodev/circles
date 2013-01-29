@@ -14,7 +14,11 @@ coord_t cross_prod(coord_t a, coord_t b);
 double dot_prod(coord_t a, coord_t b);
 coord_t normalize(coord_t a);
 
-
+// __device__ SphereIntersectionTest
+// __device__ PlaneIntersectionTest
+// __device__ DirectIllumination
+// __device__ CastRay 
+// __global__ RayTrace
 
 int main(int argc, char *argv[]) {
 
