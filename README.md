@@ -1,4 +1,4 @@
-Authors: Luke Larson, Brian Gomber, Susan Marano
+Authors: Luke Larson, Brian Gomberg, Susan Marano
 Date: 1/29/2013
 
 Description:
