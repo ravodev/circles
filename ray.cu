@@ -20,7 +20,6 @@ coord_t normalize(coord_t a);
 // __device__ CastRay(sphere_t spheres[], int num_spheres)
 // __global__ RayTrace(ray_t rays[], sphere_t spheres[], int num_spheres, int num_rays, output_buffer) 
 
-__global__ void RayTrace(
 
 int main(int argc, char *argv[]) {
 
@@ -166,12 +165,12 @@ int main(int argc, char *argv[]) {
   // true to scale to max color, false to clamp to 1.0
 
 }
-__device__ void SphereIntersectionTest(ray_t *ray, sphere_t *sphere, double *t) {
+
+void SphereIntersectionTest(ray_t *ray, sphere_t *sphere, double *t) {
+//__device__ void SphereIntersectionTest(ray_t *ray, sphere_t *sphere, double *t) {
    double discrim;
    double t1;
    double t2;
-   
-   coord_t intercept;
    
    coord_t temp;    //camera - center
    temp.x = ray->start.x - sphere->center.x;
@@ -183,10 +182,10 @@ __device__ void SphereIntersectionTest(ray_t *ray, sphere_t *sphere, double *t) 
              dot_prod(temp, temp) - pow(sphere->radius, 2);
    
    if (discrim >= 0) {
-      t1 = (-dot_prod(ray.dir,temp) + sqrt(discrim)) /
-           dot_prod(ray.dir,ray.dir);
-      t2 = (-dot_prod(ray.dir,temp) - sqrt(discrim)) /
-           (dot_prod(ray.dir,ray.dir));
+      t1 = (-dot_prod(ray->dir,temp) + sqrt(discrim)) /
+           dot_prod(ray->dir,ray->dir);
+      t2 = (-dot_prod(ray->dir,temp) - sqrt(discrim)) /
+           (dot_prod(ray->dir,ray->dir));
       
       //Find first intercept at t
       // Find closer
@@ -199,18 +198,15 @@ __device__ void SphereIntersectionTest(ray_t *ray, sphere_t *sphere, double *t) 
          return;
       }
    }
-   *t = -1
+   *t = -1;
    return;
 }
 
-()()
 double intercept_sphere(ray_t ray, sphere_t sphere){
 
    double discrim;
    double t1;
    double t2;
-   
-   coord_t intercept;
    
    coord_t temp;    //camera - center
    temp.x = ray.start.x - sphere.center.x;
