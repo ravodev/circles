@@ -7,6 +7,17 @@
 #include <time.h>
 
 #define NUM_SHAPES 100
+#define xmax 1023;
+#define ymax = 1023;
+#define xmin = 0;
+#define ymin = 0;
+
+#define screen_xmin -0.5;
+#define screen_xmax 0.5;
+#define screen_ymin -0.5;
+#define screen_ymax 0.5;
+
+#define BLOCK_SIZE 16
 
 double intercept_sphere(ray_t ray, sphere_t sphere);
 color_t lighting(coord_t point, eye_t camera, light_t light, ray_t ray, sphere_t sphere, color_t ambience, sphere_t* spheres);
@@ -18,8 +29,83 @@ coord_t normalize(coord_t a);
 // in global memory: coord_t point, eye_t camera, light_t light, color_t ambience, sphere_t* spheres
 // __device__ DirectIllumination(sphere_t, ray_t, float)
 // __device__ CastRay(sphere_t spheres[], int num_spheres)
-// __global__ RayTrace(ray_t rays[], sphere_t spheres[], int num_spheres, int num_rays, output_buffer) 
+// __global__ RayTrace(ray_t rays[], sphere_t spheres[], int num_spheres,
+//                     int num_rays, output_buffer) 
 
+__global__ RayTrace(sphere_t spheres[], color_t *output_buffer, double *max) 
+{
+    int col = blockIdx.x * blockDim.x  + threadIdx.x;
+    int row  = blockIdx.y * blockDim.y + threadIdx.y; 
+    double _max = 1.0;
+
+    coord_t s;
+    color_t color;
+
+    // Bounds checking
+    if (!(col > xmax) || !(row > ymax))
+        return;
+
+    //Find x and y values at the screen
+    // Coords with respect to eye
+    s.x = screen.xmin+(screen.xmax-screen.xmin)*((col+0.5)/abs(xmax-xmin)); 
+    s.y = screen.ymin+(screen.ymax-screen.ymin)*((row+0.5)/abs(ymax-ymin)); 
+    s.z = screen.z;
+    
+    //convert to proper plane
+    coord_t n;
+    n.x = camera.eye.x-camera.look.x;
+    n.y = camera.eye.y-camera.look.y;
+    n.z = camera.eye.z-camera.look.z;
+    
+    coord_t u = cross_prod(camera.up,n);
+    coord_t v = cross_prod(n, u);
+    
+    u = normalize(u);
+    v = normalize(v);
+    n = normalize(n);
+    
+    // Convert from eye coordinate system to normal
+    s.x = camera.eye.x + s.x*u.x + s.y*v.x + s.z*n.x; 
+    s.y = camera.eye.y + s.x*u.y + s.y*v.y + s.z*n.y; 
+    s.z = camera.eye.z + s.x*u.z + s.y*v.z + s.z*n.z; 
+    
+    //Define ray
+    curRay.dir.x = s.x - camera.eye.x;
+    curRay.dir.y = s.y - camera.eye.y;
+    curRay.dir.z = s.z - camera.eye.z;
+    curRay.start = camera.eye; 
+    curRay.t = -1;
+    
+    float t;
+    sphere_t sphere;
+    //check which objects intersect with ray
+    for(int o = 0; o < NUM_SHAPES; o++){ //TODO more shapes
+       t = intercept_sphere(curRay, spheres[o]);
+       if ((t > 0 )&&((t < curRay.t) || (curRay.t < 0))){
+          curRay.t = t;
+          sphere = spheres[o];
+       }       
+    }
+    
+    // Put inside of DirectIllumination
+    // Finds intersection from ray
+    if(curRay.t > 0){
+       intercept.x = (curRay.start.x)+curRay.t*(curRay.dir.x);
+       intercept.y = (curRay.start.y)+curRay.t*(curRay.dir.y);
+       intercept.z = (curRay.start.z)+curRay.t*(curRay.dir.z);
+    }
+         
+    // Change intercept to t
+    color = DirectIllumination(intercept, camera, light, curRay, sphere,
+                               ambience, spheres);
+    outputbuffer[row*xmax + col] = color;
+
+    _max = (color.r > _max) ? color.r : _max;
+    _max = (color.g > _max) ? color.g : _max;
+    _max = (color.b > _max) ? color.b : _max;
+    
+    *max = _max;
+}
 
 int main(int argc, char *argv[]) {
 
@@ -95,70 +181,22 @@ int main(int argc, char *argv[]) {
   
   // current screen coordinates
   coord_t s;
-  
   color_t color;
-  
-  
-  //find coordinates of the screen pixels 
-  for (int i=xmin-0.5; i < xmax-0.5; i++) {
-    for (int j=ymin-0.5; j < ymax-0.5; j++) {
-         //Find x and y values at the screen
-         // Coords with respect to eye
-         s.x = screen.xmin+(screen.xmax-screen.xmin)*((i+0.5)/abs(xmax-xmin)); 
-         s.y = screen.ymin+(screen.ymax-screen.ymin)*((j+0.5)/abs(ymax-ymin)); 
-         s.z = screen.z;
-         
-         //convert to proper plane
-         coord_t n;
-         n.x = camera.eye.x-camera.look.x;
-         n.y = camera.eye.y-camera.look.y;
-         n.z = camera.eye.z-camera.look.z;
-         
-         coord_t u = cross_prod(camera.up,n);
-         coord_t v = cross_prod(n, u);
-         
-         u = normalize(u);
-         v = normalize(v);
-         n = normalize(n);
-         
-         // Convert from eye coordinate system to normal
-         s.x = camera.eye.x + s.x*u.x + s.y*v.x + s.z*n.x; 
-         s.y = camera.eye.y + s.x*u.y + s.y*v.y + s.z*n.y; 
-         s.z = camera.eye.z + s.x*u.z + s.y*v.z + s.z*n.z; 
-         
-         //Define ray
-         curRay.dir.x = s.x - camera.eye.x;
-         curRay.dir.y = s.y - camera.eye.y;
-         curRay.dir.z = s.z - camera.eye.z;
-         curRay.start = camera.eye; 
-         curRay.t = -1;
-         
-         float t;
-         sphere_t sphere;
-         //check which objects intersect with ray
-         for(int o = 0; o < NUM_SHAPES; o++){ //TODO more shapes
-            t = intercept_sphere(curRay, spheres[o]);
-            if ((t > 0 )&&((t < curRay.t) || (curRay.t < 0))){
-               curRay.t = t;
-               sphere = spheres[o];
-            }       
-         }
-         
-         if(curRay.t > 0){
-            intercept.x = (curRay.start.x)+curRay.t*(curRay.dir.x);
-            intercept.y = (curRay.start.y)+curRay.t*(curRay.dir.y);
-            intercept.z = (curRay.start.z)+curRay.t*(curRay.dir.z);
-              
-         
-            
+  double max;
+  double *pmax;
+  cudaMalloc(&pmax, sizeof(double));
+  if (!pmax) {
+    printf("cudaMalloc error\n");
+    return;
+  }
 
-            color = lighting(intercept, camera, light, curRay, sphere, ambience, spheres);
-            img.pixel(i, j, color);
-         }
-      }       
-    }
-  
-  //
+
+
+  dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
+  dim3 gridDim((xmax+1+(BLOCK_SIZE-1))/BLOCK_SIZE, (ymax+1+(BLOCK_SIZE)/BLOCK_SIZE);
+  RayTracer<<<gridDim, blockDim>>>(spheres, output_buffer, *pmax);
+
+  cudaMemcpy
 
   // write the targa file to disk
   img.WriteTga((char *)"awesome.tga", true); 
@@ -234,7 +272,7 @@ double intercept_sphere(ray_t ray, sphere_t sphere){
    return -1;
 }
 
-color_t lighting(coord_t point, eye_t camera, light_t light, ray_t ray,
+__device__ color_t DirectIllumination(coord_t point, eye_t camera, light_t light, ray_t ray,
                  sphere_t sphere, color_t ambience, sphere_t* spheres){
    coord_t surfNorm;
    coord_t lightNorm;
@@ -317,11 +355,11 @@ color_t lighting(coord_t point, eye_t camera, light_t light, ray_t ray,
    
 }
 
-double dot_prod(coord_t a, coord_t b){
+__device__ double dot_prod(coord_t a, coord_t b){
    return (a.x)*(b.x)+(a.y)*(b.y)+(a.z)*(b.z);
 }
 
-coord_t cross_prod(coord_t a, coord_t b){
+__device__ coord_t cross_prod(coord_t a, coord_t b){
    coord_t c;
    c.x = a.y*b.z - a.z*b.y;
    c.y = a.z*b.x - a.x*b.z;
@@ -331,7 +369,7 @@ coord_t cross_prod(coord_t a, coord_t b){
 
 }
 
-coord_t normalize(coord_t a){
+__device__ coord_t normalize(coord_t a){
    double mag = sqrt((a.x)*(a.x)+(a.y)*(a.y)+(a.z)*(a.z));
    a.x = (a.x)/mag;
    a.y = (a.y)/mag;

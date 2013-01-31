@@ -32,7 +32,6 @@ public:
     int height() const { return _height; }
     double max() const { return _max; }
 
-private:
     int _width;
     int _height;
     color_t **_pixmap;
