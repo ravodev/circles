@@ -1,4 +1,10 @@
-/*First attempt at the Vanilla Ray Tracer*/
+/* CUDA version of the ray tracer program.
+ * Combined CPE458/570 Project
+ * 
+ * Brian Gomberg (bgomberg)
+ * Luke Larson (lplarson)
+ * Susan Marano (smarano)
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +36,7 @@ static void HandleError( cudaError_t err,
 }
 #define HANDLE_ERROR( err ) (HandleError( err, __FILE__, __LINE__ ))
 
-// in global memory: coord_t point, eye_t camera, light_t light, color_t ambience, sphere_t* spheres
+// in global memory: coord_t point, eye_t camera5, light_t light, color_t ambience, sphere_t* spheres
 // __device__ color_t DirectIllumination(sphere_t, ray_t, float);
 __device__ color_t DirectIllumination(coord_t point, eye_t camera, light_t light, ray_t ray,
                  sphere_t sphere, color_t ambience, sphere_t* spheres);
@@ -171,15 +177,26 @@ int main(int argc, char *argv[]) {
   int size = sizeof(color_t) * (X_MAX+1) * (Y_MAX+1);
 
   output = (color_t *) malloc(size);
- 
+
   HANDLE_ERROR(cudaMalloc(&spheresd, sizeof(sphere_t) * NUM_SHAPES));
   HANDLE_ERROR(cudaMemcpy(spheresd, spheres, sizeof(sphere_t)*NUM_SHAPES, cudaMemcpyHostToDevice));
 
   HANDLE_ERROR(cudaMalloc(&outputd, size));
 
+  /*cudaEvent_t start, stop;
+  float elapsed;
+  cudaEventCreate(&start);
+  cudaEventRecord(start, 0);*/
+
   dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
   dim3 gridDim((X_MAX+1+(BLOCK_SIZE-1))/BLOCK_SIZE, (Y_MAX+1+(BLOCK_SIZE)/BLOCK_SIZE));
   RayTracer<<<gridDim, blockDim>>>(spheresd, outputd, camera, light, ambience);
+
+  /*cudaEventCreate(&stop);
+  cudaEventRecord(stop, 0);
+  cudaEventSynchronize(stop);
+  cudaEventElapsedTime(&elapsed, start, stop);
+  printf("Elapsed time: %f ms\n", elapsed);*/
 
   HANDLE_ERROR(cudaMemcpy(output, outputd, size, cudaMemcpyDeviceToHost));
   HANDLE_ERROR(cudaFree(outputd));
@@ -213,7 +230,7 @@ __device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
    //find and check discriminant
    discrim=(pow(dot_prod(ray.dir,temp),2)-(dot_prod(ray.dir,ray.dir))*(dot_prod(temp,temp)-pow(sphere.radius,2)));
    
-   if (discrim <= 0) {
+   if (discrim >= 0) {
       t1 = ((-dot_prod(ray.dir,temp))+(sqrt(discrim)))/(dot_prod(ray.dir,ray.dir));
       t2 = ((-dot_prod(ray.dir,temp))-(sqrt(discrim)))/(dot_prod(ray.dir,ray.dir));
       
