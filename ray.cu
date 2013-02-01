@@ -7,15 +7,8 @@
 #include <time.h>
 
 #define NUM_SHAPES 100
-#define xmax 1023;
-#define ymax = 1023;
-#define xmin = 0;
-#define ymin = 0;
-
-#define screen_xmin -0.5;
-#define screen_xmax 0.5;
-#define screen_ymin -0.5;
-#define screen_ymax 0.5;
+#define X_MAX 1023
+#define Y_MAX 1023
 
 #define BLOCK_SIZE 16
 
@@ -25,31 +18,44 @@ coord_t cross_prod(coord_t a, coord_t b);
 double dot_prod(coord_t a, coord_t b);
 coord_t normalize(coord_t a);
 
-// __device__ float SphereIntersectionTest(sphere_t, ray_t)
+// http://stackoverflow.com/questions/13245258/handle-error-not-found-error-in-cuda
+static void HandleError( cudaError_t err,
+                         const char *file,
+                         int line ) {
+    if (err != cudaSuccess) {
+        printf( "%s in %s at line %d\n", cudaGetErrorString( err ),
+                file, line );
+        exit( EXIT_FAILURE );
+    }
+}
+#define HANDLE_ERROR( err ) (HandleError( err, __FILE__, __LINE__ ))
+
 // in global memory: coord_t point, eye_t camera, light_t light, color_t ambience, sphere_t* spheres
-// __device__ DirectIllumination(sphere_t, ray_t, float)
+// __device__ color_t DirectIllumination(sphere_t, ray_t, float);
+__device__ color_t DirectIllumination(coord_t point, eye_t camera, light_t light, ray_t ray,
+                 sphere_t sphere, color_t ambience, sphere_t* spheres);
 // __device__ CastRay(sphere_t spheres[], int num_spheres)
 // __global__ RayTrace(ray_t rays[], sphere_t spheres[], int num_spheres,
 //                     int num_rays, output_buffer) 
 
-__global__ RayTrace(sphere_t spheres[], color_t *output_buffer, double *max) 
+__global__ void RayTracer(sphere_t *spheres, color_t *output_buffer,
+        eye_t camera, light_t light, color_t ambience) 
 {
     int col = blockIdx.x * blockDim.x  + threadIdx.x;
     int row  = blockIdx.y * blockDim.y + threadIdx.y; 
-    double _max = 1.0;
 
     coord_t s;
     color_t color;
 
     // Bounds checking
-    if (!(col > xmax) || !(row > ymax))
+    if (col > X_MAX || row > Y_MAX)
         return;
 
     //Find x and y values at the screen
     // Coords with respect to eye
-    s.x = screen.xmin+(screen.xmax-screen.xmin)*((col+0.5)/abs(xmax-xmin)); 
-    s.y = screen.ymin+(screen.ymax-screen.ymin)*((row+0.5)/abs(ymax-ymin)); 
-    s.z = screen.z;
+    s.x = -0.5+(((double)col)/X_MAX); 
+    s.y = -0.5+(((double)row)/Y_MAX);
+    s.z = 1;
     
     //convert to proper plane
     coord_t n;
@@ -70,6 +76,7 @@ __global__ RayTrace(sphere_t spheres[], color_t *output_buffer, double *max)
     s.z = camera.eye.z + s.x*u.z + s.y*v.z + s.z*n.z; 
     
     //Define ray
+    ray_t curRay;
     curRay.dir.x = s.x - camera.eye.x;
     curRay.dir.y = s.y - camera.eye.y;
     curRay.dir.z = s.z - camera.eye.z;
@@ -89,7 +96,9 @@ __global__ RayTrace(sphere_t spheres[], color_t *output_buffer, double *max)
     
     // Put inside of DirectIllumination
     // Finds intersection from ray
-    if(curRay.t > 0){
+    coord_t intercept;
+    if (curRay.t > 0)
+    {
        intercept.x = (curRay.start.x)+curRay.t*(curRay.dir.x);
        intercept.y = (curRay.start.y)+curRay.t*(curRay.dir.y);
        intercept.z = (curRay.start.z)+curRay.t*(curRay.dir.z);
@@ -98,24 +107,13 @@ __global__ RayTrace(sphere_t spheres[], color_t *output_buffer, double *max)
     // Change intercept to t
     color = DirectIllumination(intercept, camera, light, curRay, sphere,
                                ambience, spheres);
-    outputbuffer[row*xmax + col] = color;
-
-    _max = (color.r > _max) ? color.r : _max;
-    _max = (color.g > _max) ? color.g : _max;
-    _max = (color.b > _max) ? color.b : _max;
-    
-    *max = _max;
+    output_buffer[row*(X_MAX+1) + col] = color;
 }
 
 int main(int argc, char *argv[]) {
 
-  //2D Array of Pixels(Colors)
-  double xmax = 1023;
-  double ymax = 1023;
-  double xmin = 0;
-  double ymin = 0;
-  //color_t pixels[xmax][ymax];
-  Image img(xmax+1, ymax+1);
+  //color_t pixels[X_MAX][Y_MAX];
+  Image img(X_MAX+1, Y_MAX+1);
   
   // Set up camera
   eye_t camera;
@@ -140,14 +138,6 @@ int main(int argc, char *argv[]) {
   light.color.g = 1;
   light.color.b = 1;
   
-  // Set up Screen/Near Plane
-  screen_t screen;
-  screen.xmin = -0.5;
-  screen.xmax = 0.5;
-  screen.ymin = -0.5;
-  screen.ymax = 0.5;
-  screen.z = 1; //TODO
-  
   // Set up sphere(s)
   sphere_t spheres[NUM_SHAPES];
  
@@ -166,10 +156,6 @@ int main(int argc, char *argv[]) {
         spheres[s].name = s;
     }
   
-  
-  ray_t curRay;
-  coord_t intercept;
-  
   //abient light
   color_t ambience;
   ambience.r = .2;
@@ -180,68 +166,40 @@ int main(int argc, char *argv[]) {
   //int numShapes = 1; //TODO more shapes
   
   // current screen coordinates
-  coord_t s;
-  color_t color;
-  double max;
-  double *pmax;
-  cudaMalloc(&pmax, sizeof(double));
-  if (!pmax) {
-    printf("cudaMalloc error\n");
-    return;
-  }
+  color_t *output, *outputd;
+  sphere_t *spheresd;
+  int size = sizeof(color_t) * (X_MAX+1) * (Y_MAX+1);
 
+  output = (color_t *) malloc(size);
+ 
+  HANDLE_ERROR(cudaMalloc(&spheresd, sizeof(sphere_t) * NUM_SHAPES));
+  HANDLE_ERROR(cudaMemcpy(spheresd, spheres, sizeof(sphere_t)*NUM_SHAPES, cudaMemcpyHostToDevice));
 
+  HANDLE_ERROR(cudaMalloc(&outputd, size));
 
   dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
-  dim3 gridDim((xmax+1+(BLOCK_SIZE-1))/BLOCK_SIZE, (ymax+1+(BLOCK_SIZE)/BLOCK_SIZE);
-  RayTracer<<<gridDim, blockDim>>>(spheres, output_buffer, *pmax);
+  dim3 gridDim((X_MAX+1+(BLOCK_SIZE-1))/BLOCK_SIZE, (Y_MAX+1+(BLOCK_SIZE)/BLOCK_SIZE));
+  RayTracer<<<gridDim, blockDim>>>(spheresd, outputd, camera, light, ambience);
 
-  cudaMemcpy
+  HANDLE_ERROR(cudaMemcpy(output, outputd, size, cudaMemcpyDeviceToHost));
+  HANDLE_ERROR(cudaFree(outputd));
+
+  // translate output into img.pixmap
+  int i, j;
+  for (i = 0; i <= X_MAX; i++)
+  {
+      for (j = 0; j <= Y_MAX; j++)
+      {
+          img.pixel(i, j, output[j*(X_MAX+1)+i]);
+      }
+  }
 
   // write the targa file to disk
   img.WriteTga((char *)"awesome.tga", true); 
   // true to scale to max color, false to clamp to 1.0
-
 }
 
-void SphereIntersectionTest(ray_t *ray, sphere_t *sphere, double *t) {
-//__device__ void SphereIntersectionTest(ray_t *ray, sphere_t *sphere, double *t) {
-   double discrim;
-   double t1;
-   double t2;
-   
-   coord_t temp;    //camera - center
-   temp.x = ray->start.x - sphere->center.x;
-   temp.y = ray->start.y - sphere->center.y;
-   temp.z = ray->start.z - sphere->center.z;
-  
-   //find and check discriminant
-   discrim = pow(dot_prod(ray->dir, temp), 2) - dot_prod(ray->dir, ray->dir) *
-             dot_prod(temp, temp) - pow(sphere->radius, 2);
-   
-   if (discrim >= 0) {
-      t1 = (-dot_prod(ray->dir,temp) + sqrt(discrim)) /
-           dot_prod(ray->dir,ray->dir);
-      t2 = (-dot_prod(ray->dir,temp) - sqrt(discrim)) /
-           (dot_prod(ray->dir,ray->dir));
-      
-      //Find first intercept at t
-      // Find closer
-      if(t1 <= t2) {
-          *t = t1;
-          return;
-      }
-      else if (t2 <= t1) {
-        *t = t2;
-         return;
-      }
-   }
-   *t = -1;
-   return;
-}
-
-double intercept_sphere(ray_t ray, sphere_t sphere){
-
+__device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
    double discrim;
    double t1;
    double t2;
@@ -255,8 +213,7 @@ double intercept_sphere(ray_t ray, sphere_t sphere){
    //find and check discriminant
    discrim=(pow(dot_prod(ray.dir,temp),2)-(dot_prod(ray.dir,ray.dir))*(dot_prod(temp,temp)-pow(sphere.radius,2)));
    
-   if(discrim >= 0){
-      
+   if (discrim <= 0) {
       t1 = ((-dot_prod(ray.dir,temp))+(sqrt(discrim)))/(dot_prod(ray.dir,ray.dir));
       t2 = ((-dot_prod(ray.dir,temp))-(sqrt(discrim)))/(dot_prod(ray.dir,ray.dir));
       
