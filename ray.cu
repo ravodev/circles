@@ -37,21 +37,16 @@ static void HandleError( cudaError_t err,
 #define HANDLE_ERROR( err ) (HandleError( err, __FILE__, __LINE__ ))
 
 // in global memory: coord_t point, eye_t camera5, light_t light, color_t ambience, sphere_t* spheres
-// __device__ color_t DirectIllumination(sphere_t, ray_t, float);
-__device__ color_t DirectIllumination(coord_t point, eye_t camera, light_t light, ray_t ray,
-                 sphere_t sphere, color_t ambience, sphere_t* spheres);
-// __device__ CastRay(sphere_t spheres[], int num_spheres)
-// __global__ RayTrace(ray_t rays[], sphere_t spheres[], int num_spheres,
-//                     int num_rays, output_buffer) 
+__device__ color_t DirectIllumination(coord_t point, light_t light, ray_t ray,
+                 sphere_t sphere, color_t ambience, sphere_t *spheres);
 
 __global__ void RayTracer(sphere_t *spheres, color_t *output_buffer,
         eye_t camera, light_t light, color_t ambience) 
 {
     int col = blockIdx.x * blockDim.x  + threadIdx.x;
-    int row  = blockIdx.y * blockDim.y + threadIdx.y; 
+    int row  = blockIdx.y * blockDim.y + threadIdx.y;
 
     coord_t s;
-    color_t color;
 
     // Bounds checking
     if (col > X_MAX || row > Y_MAX)
@@ -111,14 +106,12 @@ __global__ void RayTracer(sphere_t *spheres, color_t *output_buffer,
     }
          
     // Change intercept to t
-    color = DirectIllumination(intercept, camera, light, curRay, sphere,
+    output_buffer[row*(X_MAX+1)+col] = DirectIllumination(intercept, light, curRay, sphere,
                                ambience, spheres);
-    output_buffer[row*(X_MAX+1) + col] = color;
 }
 
 int main(int argc, char *argv[]) {
 
-  //color_t pixels[X_MAX][Y_MAX];
   Image img(X_MAX+1, Y_MAX+1);
   
   // Set up camera
@@ -146,7 +139,6 @@ int main(int argc, char *argv[]) {
   
   // Set up sphere(s)
   sphere_t spheres[NUM_SHAPES];
- 
     srand(time(NULL));
 
     for(int s = 0; s < NUM_SHAPES; s++){
@@ -169,8 +161,6 @@ int main(int argc, char *argv[]) {
   ambience.b = .2;
   
   
-  //int numShapes = 1; //TODO more shapes
-  
   // current screen coordinates
   color_t *output, *outputd;
   sphere_t *spheresd;
@@ -183,20 +173,20 @@ int main(int argc, char *argv[]) {
 
   HANDLE_ERROR(cudaMalloc(&outputd, size));
 
-  /*cudaEvent_t start, stop;
+  cudaEvent_t start, stop;
   float elapsed;
   cudaEventCreate(&start);
-  cudaEventRecord(start, 0);*/
+  cudaEventRecord(start, 0);
 
   dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
   dim3 gridDim((X_MAX+1+(BLOCK_SIZE-1))/BLOCK_SIZE, (Y_MAX+1+(BLOCK_SIZE)/BLOCK_SIZE));
   RayTracer<<<gridDim, blockDim>>>(spheresd, outputd, camera, light, ambience);
 
-  /*cudaEventCreate(&stop);
+  cudaEventCreate(&stop);
   cudaEventRecord(stop, 0);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsed, start, stop);
-  printf("Elapsed time: %f ms\n", elapsed);*/
+  printf("Elapsed time: %f ms\n", elapsed);
 
   HANDLE_ERROR(cudaMemcpy(output, outputd, size, cudaMemcpyDeviceToHost));
   HANDLE_ERROR(cudaFree(outputd));
@@ -246,8 +236,8 @@ __device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
    return -1;
 }
 
-__device__ color_t DirectIllumination(coord_t point, eye_t camera, light_t light, ray_t ray,
-                 sphere_t sphere, color_t ambience, sphere_t* spheres){
+__device__ color_t DirectIllumination(coord_t point, light_t light, ray_t ray,
+                 sphere_t sphere, color_t ambience, sphere_t *spheres){
    coord_t surfNorm;
    coord_t lightNorm;
    coord_t viewNorm;
@@ -265,11 +255,6 @@ __device__ color_t DirectIllumination(coord_t point, eye_t camera, light_t light
    surfNorm.z = point.z - sphere.center.z;
    surfNorm = normalize(surfNorm);
    
-   //calculate viewing normal
-   viewNorm.x = -ray.dir.x;
-   viewNorm.y = -ray.dir.y;
-   viewNorm.z = -ray.dir.z;
-   viewNorm = normalize(viewNorm);
    
    //calculate light normal
    lightNorm.x = light.loc.x-point.x;
@@ -279,51 +264,58 @@ __device__ color_t DirectIllumination(coord_t point, eye_t camera, light_t light
    
    //calculate diffuse color
    diffuse = dot_prod(surfNorm,lightNorm);
-   if(diffuse > 1) diffuse = 1;
-   else if(diffuse < 0) diffuse = 0;
    
-   
-   //calculate reflection ray normal
-   reflectNorm.x = (2*surfNorm.x*diffuse)-lightNorm.x;
-   reflectNorm.y = (2*surfNorm.y*diffuse)-lightNorm.y;
-   reflectNorm.z = (2*surfNorm.z*diffuse)-lightNorm.z;
-   reflectNorm = normalize(reflectNorm);
-   
-   //calculate specular color
-   spec = pow(dot_prod(viewNorm, reflectNorm),sphere.glos);
-   
-   if (spec > 1) spec = 1;
-   else if (spec < 0) spec = 0;
-   if(diffuse == 0) spec = 0;  //NOT NEED IN RAY TRACER ?
-   
-   //check for shadows
-   float t = -1;
-   bool hit = false;
-   lightRay.start = point;
-   lightRay.dir = lightNorm;
-   
-   for(int o = 0; o < NUM_SHAPES; o++){ 
-		if (sphere.name != spheres[o].name){
-      	t = intercept_sphere(lightRay, spheres[o]);
-      	//printf("t: %f  o: %d \n", t, o);
-      	if (t > 0){
-          	hit = true;
-			}
-          
-      }       
+   if(diffuse > 0) {
+      if(diffuse > 1) diffuse = 1;
+
+      //calculate viewing normal
+      viewNorm.x = -ray.dir.x;
+      viewNorm.y = -ray.dir.y;
+      viewNorm.z = -ray.dir.z;
+      viewNorm = normalize(viewNorm);
+
+      //calculate reflection ray normal
+      reflectNorm.x = (2*surfNorm.x*diffuse)-lightNorm.x;
+      reflectNorm.y = (2*surfNorm.y*diffuse)-lightNorm.y;
+      reflectNorm.z = (2*surfNorm.z*diffuse)-lightNorm.z;
+      reflectNorm = normalize(reflectNorm);
+      
+      //calculate specular color
+      spec = pow(dot_prod(viewNorm, reflectNorm),sphere.glos);
+      
+      if (spec > 1) spec = 1;
+      else if (spec < 0) spec = 0;
+
+      //check for shadows
+      float t = -1;
+      bool hit = false;
+      lightRay.start = point;
+      lightRay.dir = lightNorm;
+      
+      for(int o = 0; o < NUM_SHAPES; o++){ 
+        if (sphere.name != spheres[o].name){
+         	t = intercept_sphere(lightRay, spheres[o]);
+         	if (t > 0){
+             	hit = true;
+               break;
+		   }
+         }       
+      }
+      if(hit){
+        spec = 0;
+        diffuse = 0;
+           
+      }
    }
-   if(hit){
-     spec = 0;
+   else{
      diffuse = 0;
-        
+     spec = 0;
    }
    
-   //spec =0;
    //calculate color
    color.r = sphere.color.r*ambience.r + light.color.r*((sphere.color.r*diffuse) + (sphere.spec*spec));
    color.g = sphere.color.g*ambience.g + light.color.g*((sphere.color.g*diffuse) + (sphere.spec*spec));
    color.b = sphere.color.b*ambience.b + light.color.b*((sphere.color.b*diffuse) + (sphere.spec*spec));
-   //printf("speck: %f \n", spec);
    
    return color;
    
