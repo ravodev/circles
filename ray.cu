@@ -18,11 +18,15 @@
 
 #define BLOCK_SIZE 16
 
-double intercept_sphere(ray_t ray, sphere_t sphere);
-color_t lighting(coord_t point, eye_t camera, light_t light, ray_t ray, sphere_t sphere, color_t ambience, sphere_t* spheres);
-coord_t cross_prod(coord_t a, coord_t b);
-double dot_prod(coord_t a, coord_t b);
-coord_t normalize(coord_t a);
+#define LIGHT_X 1
+#define LIGHT_Y 0
+#define LIGHT_Z 0.5
+#define LIGHT_C 1
+
+__device__ double intercept_sphere(ray_t ray, sphere_t sphere);
+__device__ coord_t cross_prod(coord_t a, coord_t b);
+__device__ double dot_prod(coord_t a, coord_t b);
+__device__ coord_t normalize(coord_t a);
 
 // http://stackoverflow.com/questions/13245258/handle-error-not-found-error-in-cuda
 static void HandleError( cudaError_t err,
@@ -45,12 +49,16 @@ __global__ void RayTracer(sphere_t *spheres, color_t *output_buffer,
 {
     int col = blockIdx.x * blockDim.x  + threadIdx.x;
     int row  = blockIdx.y * blockDim.y + threadIdx.y;
-
+    __shared__ sphere_t spheres_shared[NUM_SHAPES];
     coord_t s;
 
     // Bounds checking
     if (col > X_MAX || row > Y_MAX)
         return;
+
+    int idx = (threadIdx.x * blockDim.x + threadIdx.y) % NUM_SHAPES;
+    spheres_shared[idx] = spheres[idx];
+    __syncthreads();
 
     //Find x and y values at the screen
     // Coords with respect to eye
@@ -88,10 +96,10 @@ __global__ void RayTracer(sphere_t *spheres, color_t *output_buffer,
     sphere_t sphere;
     //check which objects intersect with ray
     for(int o = 0; o < NUM_SHAPES; o++){ //TODO more shapes
-       t = intercept_sphere(curRay, spheres[o]);
+       t = intercept_sphere(curRay, spheres_shared[o]);
        if ((t > 0 )&&((t < curRay.t) || (curRay.t < 0))){
           curRay.t = t;
-          sphere = spheres[o];
+          sphere = spheres_shared[o];
        }       
     }
     
@@ -103,11 +111,10 @@ __global__ void RayTracer(sphere_t *spheres, color_t *output_buffer,
        intercept.x = (curRay.start.x)+curRay.t*(curRay.dir.x);
        intercept.y = (curRay.start.y)+curRay.t*(curRay.dir.y);
        intercept.z = (curRay.start.z)+curRay.t*(curRay.dir.z);
+        // Change intercept to t
+        output_buffer[row*(X_MAX+1)+col] = DirectIllumination(intercept, light, curRay, sphere,
+                               ambience, spheres_shared);
     }
-         
-    // Change intercept to t
-    output_buffer[row*(X_MAX+1)+col] = DirectIllumination(intercept, light, curRay, sphere,
-                               ambience, spheres);
 }
 
 int main(int argc, char *argv[]) {
@@ -260,7 +267,6 @@ __device__ color_t DirectIllumination(coord_t point, light_t light, ray_t ray,
    lightNorm.x = light.loc.x-point.x;
    lightNorm.y = light.loc.y-point.y;
    lightNorm.z = light.loc.z-point.z;
-   lightNorm = normalize(lightNorm);
    
    //calculate diffuse color
    diffuse = dot_prod(surfNorm,lightNorm);

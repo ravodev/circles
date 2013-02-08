@@ -1,4 +1,4 @@
-NVFLAGS=-pg -arch=compute_20 -code=sm_20 -O2
+NVFLAGS=-pg -arch=compute_20 -code=sm_20 -O3 -Xptxas -dlcm=ca
 # list .c and .cu source files here
 SRCFILES=ray.cu Image.cpp
 
