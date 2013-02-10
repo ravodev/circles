@@ -8,7 +8,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "Image.h"
 #include "types.h"
 #include <time.h>
 
@@ -27,6 +26,7 @@ __device__ double intercept_sphere(ray_t ray, sphere_t sphere);
 __device__ coord_t cross_prod(coord_t a, coord_t b);
 __device__ double dot_prod(coord_t a, coord_t b);
 __device__ coord_t normalize(coord_t a);
+//void doAnimation(Image *image);
 
 // http://stackoverflow.com/questions/13245258/handle-error-not-found-error-in-cuda
 static void HandleError( cudaError_t err,
@@ -41,10 +41,10 @@ static void HandleError( cudaError_t err,
 #define HANDLE_ERROR( err ) (HandleError( err, __FILE__, __LINE__ ))
 
 // in global memory: coord_t point, eye_t camera5, light_t light, color_t ambience, sphere_t* spheres
-__device__ color_t DirectIllumination(coord_t point, light_t light, ray_t ray,
+__device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
                  sphere_t sphere, color_t ambience, sphere_t *spheres);
 
-__global__ void RayTracer(sphere_t *spheres, color_t *output_buffer,
+__global__ void RayTracer(sphere_t *spheres, uchar4 *output_buffer,
         eye_t camera, light_t light, color_t ambience) 
 {
     int col = blockIdx.x * blockDim.x  + threadIdx.x;
@@ -115,14 +115,33 @@ __global__ void RayTracer(sphere_t *spheres, color_t *output_buffer,
         output_buffer[row*(X_MAX+1)+col] = DirectIllumination(intercept, light, curRay, sphere,
                                ambience, spheres_shared);
     }
+    else
+    {
+        output_buffer[row*(X_MAX+1)+col].w = 0;
+        output_buffer[row*(X_MAX+1)+col].x = 0;
+        output_buffer[row*(X_MAX+1)+col].y = 0;
+        output_buffer[row*(X_MAX+1)+col].z = 0;
+    }
 }
 
-int main(int argc, char *argv[]) {
+/*int main(int argc, char *argv[]) {
 
   Image img(X_MAX+1, Y_MAX+1);
-  
+
+  doAnimation(&img);
+  // write the targa file to disk
+  img.WriteTga((char *)"awesome.tga", true); 
+  // true to scale to max color, false to clamp to 1.0
+}*/
+
+eye_t camera;
+light_t light;
+sphere_t spheres[NUM_SHAPES];
+color_t ambience;
+
+extern "C" void init_cuda()
+{
   // Set up camera
-  eye_t camera;
   camera.eye.x = 0;
   camera.eye.y = 0;
   camera.eye.z = 0;
@@ -136,7 +155,6 @@ int main(int argc, char *argv[]) {
   camera.up.z = 0;
   
   // Set up light
-  light_t light;
   light.loc.x = 1;
   light.loc.y = 0;
   light.loc.z = 0.5;
@@ -145,7 +163,6 @@ int main(int argc, char *argv[]) {
   light.color.b = 1;
   
   // Set up sphere(s)
-  sphere_t spheres[NUM_SHAPES];
     srand(time(NULL));
 
     for(int s = 0; s < NUM_SHAPES; s++){
@@ -162,55 +179,35 @@ int main(int argc, char *argv[]) {
     }
   
   //abient light
-  color_t ambience;
   ambience.r = .2;
   ambience.g = .2;
   ambience.b = .2;
+}
+
+/*void doAnimation(Image *img) {  
   
-  
-  // current screen coordinates
-  color_t *output, *outputd;
-  sphere_t *spheresd;
-  int size = sizeof(color_t) * (X_MAX+1) * (Y_MAX+1);
-
-  output = (color_t *) malloc(size);
-
-  HANDLE_ERROR(cudaMalloc(&spheresd, sizeof(sphere_t) * NUM_SHAPES));
-  HANDLE_ERROR(cudaMemcpy(spheresd, spheres, sizeof(sphere_t)*NUM_SHAPES, cudaMemcpyHostToDevice));
-
-  HANDLE_ERROR(cudaMalloc(&outputd, size));
-
-  cudaEvent_t start, stop;
-  float elapsed;
-  cudaEventCreate(&start);
-  cudaEventRecord(start, 0);
-
-  dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
-  dim3 gridDim((X_MAX+1+(BLOCK_SIZE-1))/BLOCK_SIZE, (Y_MAX+1+(BLOCK_SIZE)/BLOCK_SIZE));
-  RayTracer<<<gridDim, blockDim>>>(spheresd, outputd, camera, light, ambience);
-
-  cudaEventCreate(&stop);
-  cudaEventRecord(stop, 0);
-  cudaEventSynchronize(stop);
-  cudaEventElapsedTime(&elapsed, start, stop);
-  printf("Elapsed time: %f ms\n", elapsed);
-
-  HANDLE_ERROR(cudaMemcpy(output, outputd, size, cudaMemcpyDeviceToHost));
-  HANDLE_ERROR(cudaFree(outputd));
-
   // translate output into img.pixmap
   int i, j;
   for (i = 0; i <= X_MAX; i++)
   {
       for (j = 0; j <= Y_MAX; j++)
       {
-          img.pixel(i, j, output[j*(X_MAX+1)+i]);
+          img->pixel(i, j, output[j*(X_MAX+1)+i]);
       }
   }
+}*/
 
-  // write the targa file to disk
-  img.WriteTga((char *)"awesome.tga", true); 
-  // true to scale to max color, false to clamp to 1.0
+extern "C" void run_cuda(uchar4 *dptr)
+{
+  // current screen coordinates
+  sphere_t *spheresd;
+
+  HANDLE_ERROR(cudaMalloc(&spheresd, sizeof(sphere_t) * NUM_SHAPES));
+  HANDLE_ERROR(cudaMemcpy(spheresd, spheres, sizeof(sphere_t)*NUM_SHAPES, cudaMemcpyHostToDevice));
+
+  dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
+  dim3 gridDim((X_MAX+1+(BLOCK_SIZE-1))/BLOCK_SIZE, (Y_MAX+1+(BLOCK_SIZE)/BLOCK_SIZE));
+  RayTracer<<<gridDim, blockDim>>>(spheresd, dptr, camera, light, ambience);
 }
 
 __device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
@@ -243,7 +240,7 @@ __device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
    return -1;
 }
 
-__device__ color_t DirectIllumination(coord_t point, light_t light, ray_t ray,
+__device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
                  sphere_t sphere, color_t ambience, sphere_t *spheres){
    coord_t surfNorm;
    coord_t lightNorm;
@@ -254,7 +251,7 @@ __device__ color_t DirectIllumination(coord_t point, light_t light, ray_t ray,
    
    double diffuse;
    double spec;
-   color_t color;
+   uchar4 color;
    
    //calculate surface normal
    surfNorm.x = point.x - sphere.center.x;
@@ -270,10 +267,11 @@ __device__ color_t DirectIllumination(coord_t point, light_t light, ray_t ray,
    
    //calculate diffuse color
    diffuse = dot_prod(surfNorm,lightNorm);
+
+   if (diffuse > 1) diffuse = 1;
+   diffuse *= !(diffuse < 0);
    
    if(diffuse > 0) {
-      if(diffuse > 1) diffuse = 1;
-
       //calculate viewing normal
       viewNorm.x = -ray.dir.x;
       viewNorm.y = -ray.dir.y;
@@ -288,13 +286,12 @@ __device__ color_t DirectIllumination(coord_t point, light_t light, ray_t ray,
       
       //calculate specular color
       spec = pow(dot_prod(viewNorm, reflectNorm),sphere.glos);
-      
-      if (spec > 1) spec = 1;
-      else if (spec < 0) spec = 0;
+     
+      spec = (spec>1)?1:(spec<0?0:spec);
 
       //check for shadows
       float t = -1;
-      bool hit = false;
+      int noHit = 1;
       lightRay.start = point;
       lightRay.dir = lightNorm;
       
@@ -302,29 +299,33 @@ __device__ color_t DirectIllumination(coord_t point, light_t light, ray_t ray,
         if (sphere.name != spheres[o].name){
          	t = intercept_sphere(lightRay, spheres[o]);
          	if (t > 0){
-             	hit = true;
-               break;
+                noHit = 0;
+                break;
 		   }
          }       
       }
-      if(hit){
-        spec = 0;
-        diffuse = 0;
-           
-      }
+      spec *= noHit;
+      diffuse *= noHit;
    }
    else{
-     diffuse = 0;
      spec = 0;
    }
    
    //calculate color
-   color.r = sphere.color.r*ambience.r + light.color.r*((sphere.color.r*diffuse) + (sphere.spec*spec));
-   color.g = sphere.color.g*ambience.g + light.color.g*((sphere.color.g*diffuse) + (sphere.spec*spec));
-   color.b = sphere.color.b*ambience.b + light.color.b*((sphere.color.b*diffuse) + (sphere.spec*spec));
+   double r = sphere.color.r*ambience.r + light.color.r*((sphere.color.r*diffuse) + (sphere.spec*spec));
+   double g = sphere.color.g*ambience.g + light.color.g*((sphere.color.g*diffuse) + (sphere.spec*spec));
+   double b = sphere.color.b*ambience.b + light.color.b*((sphere.color.b*diffuse) + (sphere.spec*spec));
+
+   r = r>1?1:r;
+   g = g>1?1:g;
+   b = b>1?1:b;
+
+   color.w = 0;
+   color.x = r * 255;
+   color.y = g * 255;
+   color.z = b * 255;
    
    return color;
-   
 }
 
 __device__ double dot_prod(coord_t a, coord_t b){

@@ -20,6 +20,8 @@ unsigned int image_width = window_width;
 unsigned int image_height = window_height;
  
 extern "C" void launch_kernel(void* pos, unsigned int, unsigned int, float);
+extern "C" void run_cuda(uchar4 *);
+extern "C" void init_cuda();
  
 // variables
 GLuint pbo=0;
@@ -107,7 +109,8 @@ void runCuda()
   cudaGLMapBufferObject((void**)&dptr, pbo);
  
   // execute the kernel
-  launch_kernel(dptr, image_width, image_height, animTime);
+  run_cuda(dptr);
+  //launch_kernel(dptr, image_width, image_height, animTime);
  
   // unmap buffer object
   cudaGLUnmapBufferObject(pbo);
@@ -134,5 +137,6 @@ void initCuda()
   // Clean up on program exit
   atexit(cleanupCuda);
  
+  init_cuda();
   runCuda();
 }

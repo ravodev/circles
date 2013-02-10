@@ -1,14 +1,28 @@
-NVFLAGS=-pg -arch=compute_20 -code=sm_20 -O3 -Xptxas -dlcm=ca
-# list .c and .cu source files here
-SRCFILES=ray.cu Image.cpp
+CC=nvcc
+LD=nvcc
+CFLAGS= -O3 -c -lGL -lglut -DGL_GLEXT_PROTOTYPES -lGLU 
+LDFLAGS= -O3  -lGL -lglut -DGL_GLEXT_PROTOTYPES -lGLU  
+CUDAFLAGS= -O3 -c -arch=sm_21
 
-all:	ray_cuda	
+ALL= callbacksPBO.o ray.o simpleGLmain.o simplePBO.o
 
-ray_cuda:  
-	nvcc $(NVFLAGS) ray.cu Image.cpp -o ray_cuda $^
+all= $(ALL) RTRT
 
-gprof:
-	nvcc $(NVFLAGS) -pg ray.cu Image.cpp -o ray_cuda $^
+RT:	$(ALL)
+	$(CC) $(LDFLAGS) $(ALL) -o RTRT
 
-clean: 
-	rm -f *.o ray_cuda *.tga gmon.out
+callbacksPBO.o:	callbacksPBO.cpp
+	$(CC) $(CFLAGS) -o $@ $<
+
+ray.o:	ray.cu
+	$(CC) $(CUDAFLAGS) -o $@ $<
+
+simpleGLmain.o:	simpleGLmain.cpp
+	$(CC) $(CFLAGS) -o $@ $<
+
+simplePBO.o: simplePBO.cpp
+	$(CC) $(CFLAGS) -o $@ $<
+
+clean:
+	rm -rf core* *.o *.gch $(ALL) junk*
+
