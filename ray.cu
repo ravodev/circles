@@ -124,16 +124,6 @@ __global__ void RayTracer(sphere_t *spheres, uchar4 *output_buffer,
     }
 }
 
-/*int main(int argc, char *argv[]) {
-
-  Image img(X_MAX+1, Y_MAX+1);
-
-  doAnimation(&img);
-  // write the targa file to disk
-  img.WriteTga((char *)"awesome.tga", true); 
-  // true to scale to max color, false to clamp to 1.0
-}*/
-
 eye_t camera;
 light_t light;
 sphere_t spheres[NUM_SHAPES];
@@ -183,19 +173,6 @@ extern "C" void init_cuda()
   ambience.g = .2;
   ambience.b = .2;
 }
-
-/*void doAnimation(Image *img) {  
-  
-  // translate output into img.pixmap
-  int i, j;
-  for (i = 0; i <= X_MAX; i++)
-  {
-      for (j = 0; j <= Y_MAX; j++)
-      {
-          img->pixel(i, j, output[j*(X_MAX+1)+i]);
-      }
-  }
-}*/
 
 extern "C" void run_cuda(uchar4 *dptr)
 {
