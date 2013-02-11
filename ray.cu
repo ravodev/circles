@@ -15,7 +15,7 @@
 #define X_MAX 1023
 #define Y_MAX 1023
 
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 8
 
 #define LIGHT_X 1
 #define LIGHT_Y 0
@@ -31,8 +31,8 @@ __device__ double intercept_sphere(ray_t ray, sphere_t sphere);
 __device__ coord_t cross_prod(const coord_t a, const coord_t b);
 __device__ double dot_prod(const coord_t *a, const coord_t *b);
 __device__ void normalize(coord_t *a);
-__device__ float  sqrt2(const float x);
-float  sqrt2_host(const float x);
+__device__ float  sqrt2(float);
+__device__ float  Inv_sqrt2(float);
 
 coord_t cross_prod_host(coord_t a, coord_t b);
 coord_t normalize_host(coord_t a);
@@ -170,7 +170,7 @@ extern "C" void init_cuda()
   light.color.b = 1;
   
   // Set up sphere(s)
-    //srand(time(NULL));
+    srand(time(NULL));
 
     for(int s = 0; s < NUM_SHAPES; s++){
         spheres[s].center.x = ((double)rand() / ((double)RAND_MAX + 1) *2)-1;
@@ -196,18 +196,25 @@ extern "C" void init_cuda()
     n = normalize_host(n);
 }
 
+int copySpheres = 1, allocSpheres = 1;
+sphere_t *spheresd;
 extern "C" void run_cuda(uchar4 *dptr)
 {
-  // current screen coordinates
-  sphere_t *spheresd;
 #ifdef TIMING
   int *runtime_d;
   HANDLE_ERROR(cudaMalloc(&runtime_d, sizeof(int)*4));
 #endif
 
-  HANDLE_ERROR(cudaMalloc(&spheresd, sizeof(sphere_t) * NUM_SHAPES));
-  HANDLE_ERROR(cudaMemcpy(spheresd, spheres, sizeof(sphere_t)*NUM_SHAPES, cudaMemcpyHostToDevice));
-  HANDLE_ERROR(cudaMemcpy(spheresd, spheres, sizeof(sphere_t)*NUM_SHAPES, cudaMemcpyHostToDevice));
+  if (allocSpheres)
+  {
+    allocSpheres = 0;
+    HANDLE_ERROR(cudaMalloc(&spheresd, sizeof(sphere_t)*NUM_SHAPES));
+  }
+  if (copySpheres)
+  {
+    copySpheres = 0;
+    HANDLE_ERROR(cudaMemcpy(spheresd, spheres, sizeof(sphere_t)*NUM_SHAPES, cudaMemcpyHostToDevice));
+  }
 
   dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
   dim3 gridDim((X_MAX+1+(BLOCK_SIZE-1))/BLOCK_SIZE, (Y_MAX+1+(BLOCK_SIZE)/BLOCK_SIZE));
@@ -223,7 +230,6 @@ extern "C" void run_cuda(uchar4 *dptr)
 
   cudaFree(runtime_d);
 #endif
-  cudaFree(spheresd);
 
 #ifdef TIMING
   printf("%d %d %d %d\n", runtime[0], runtime[1], runtime[2], runtime[3]);
@@ -250,9 +256,9 @@ __device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
    
    if (discrim >= 0) {
       discrim = sqrt2(discrim);
-      t1 = ((-raydir_temp_dot)+(discrim))/(raydir_raydir_dot);
+      t1 = (-raydir_temp_dot+discrim)/(raydir_raydir_dot);
       if (t1 < 0) return -1;
-      t2 = ((-raydir_temp_dot)-(discrim))/(raydir_raydir_dot);
+      t2 = (-raydir_temp_dot-discrim)/(raydir_raydir_dot);
       return (t1<=t2)?t1:t2;
    }
    return -1;
@@ -379,10 +385,10 @@ coord_t cross_prod_host(coord_t a, coord_t b){
 }
 
 __device__ void normalize(coord_t *a){
-   double mag = sqrt2(dot_prod(a, a));
-   a->x = (a->x)/mag;
-   a->y = (a->y)/mag;
-   a->z = (a->z)/mag;
+   float mag_inv = Inv_sqrt2(dot_prod(a, a));
+   a->x = (a->x)*mag_inv;
+   a->y = (a->y)*mag_inv;
+   a->z = (a->z)*mag_inv;
 }
 
 coord_t normalize_host(coord_t a){
@@ -392,6 +398,19 @@ coord_t normalize_host(coord_t a){
    a.z = (a.z)/mag;
    return a;
 }
+
+// Inv_sqrt2 code from: http://forums.overclockers.co.uk/showthread.php?p=8773984
+__device__ float Inv_sqrt2(float x)
+{
+   float xhalf = 0.5f*x;
+   int i = *(int*)&x; // get bits for floating value
+   i = 0x5f375a86- (i>>1); // gives initial guess y0
+   x = *(float*)&i; // convert bits back to float
+   x = x*(1.5f-xhalf*x*x); // Newton step, repeating increases accuracy
+   return x;
+}
+
+// sqrt2 code from: http://www.codeproject.com/Articles/69941/Best-Square-Root-Method-Algorithm-Function-Precisi
 #define SQRT_MAGIC_F 0x5f3759df 
 __device__ float  sqrt2(float x)
 {

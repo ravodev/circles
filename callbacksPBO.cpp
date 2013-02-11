@@ -93,6 +93,7 @@ void keyboard(unsigned char key, int x, int y)
    glutPostRedisplay();
 }
 
+extern int copySpheres;
 void motion(int x, int y) {
    float curPos[3], dx, dy, dz;
 
@@ -121,6 +122,7 @@ void motion(int x, int y) {
 		lastPos[1] = curPos[1];
 
 	}
+       copySpheres = 1;
 	glutPostRedisplay( );
 
 }
