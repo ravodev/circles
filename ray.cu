@@ -25,7 +25,7 @@
 #define SPHERE_GLOSS 5
 #define SPHERE_RADIUS_SQRD .04
 
-#define TIMING
+//#define TIMING
 
 __device__ double intercept_sphere(ray_t ray, sphere_t sphere);
 __device__ coord_t cross_prod(const coord_t a, const coord_t b);
