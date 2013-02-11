@@ -28,9 +28,9 @@
 #define TIMING
 
 __device__ double intercept_sphere(ray_t ray, sphere_t sphere);
-__device__ coord_t cross_prod(coord_t a, coord_t b);
-__device__ double dot_prod(coord_t a, coord_t b);
-__device__ coord_t normalize(coord_t a);
+__device__ coord_t cross_prod(const coord_t a, const coord_t b);
+__device__ double dot_prod(const coord_t *a, const coord_t *b);
+__device__ void normalize(coord_t *a);
 __device__ float  sqrt2(const float x);
 float  sqrt2_host(const float x);
 
@@ -242,9 +242,9 @@ __device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
    
   
    //find and check discriminant
-   double raydir_temp_dot = dot_prod(ray.dir,temp);
-   double raydir_raydir_dot = dot_prod(ray.dir,ray.dir);
-   double temp_temp_dot = dot_prod(temp,temp);
+   double raydir_temp_dot = dot_prod(&ray.dir,&temp);
+   double raydir_raydir_dot = dot_prod(&ray.dir,&ray.dir);
+   double temp_temp_dot = dot_prod(&temp,&temp);
 
    discrim=(raydir_temp_dot*raydir_temp_dot-(raydir_raydir_dot)*(temp_temp_dot-SPHERE_RADIUS_SQRD));
    
@@ -252,9 +252,7 @@ __device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
       discrim = sqrt2(discrim);
       t1 = ((-raydir_temp_dot)+(discrim))/(raydir_raydir_dot);
       if (t1 < 0) return -1;
-      if (discrim == 0) return t1;
       t2 = ((-raydir_temp_dot)-(discrim))/(raydir_raydir_dot);
-      if (t2 < 0) return -1;
       return (t1<=t2)?t1:t2;
    }
    return -1;
@@ -301,10 +299,10 @@ __device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
 	   surfNorm.x = point.x - sphere.center.x;
 	   surfNorm.y = point.y - sphere.center.y;
 	   surfNorm.z = point.z - sphere.center.z;
-	   surfNorm = normalize(surfNorm);
+	   normalize(&surfNorm);
 
 	   //calculate diffuse color
-	   diffuse = dot_prod(surfNorm,lightNorm);
+	   diffuse = dot_prod(&surfNorm,&lightNorm);
 	   if (diffuse > 1) diffuse = 1;
 	   diffuse *= !(diffuse < 0);
 
@@ -316,16 +314,16 @@ __device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
 	      viewNorm.x = -ray.dir.x;
 	      viewNorm.y = -ray.dir.y;
 	      viewNorm.z = -ray.dir.z;
-	      viewNorm = normalize(viewNorm);
+	      normalize(&viewNorm);
 
 	      //calculate reflection ray normal
 	      reflectNorm.x = (2*surfNorm.x*diffuse)-lightNorm.x;
 	      reflectNorm.y = (2*surfNorm.y*diffuse)-lightNorm.y;
 	      reflectNorm.z = (2*surfNorm.z*diffuse)-lightNorm.z;
-	      reflectNorm = normalize(reflectNorm);
+	      normalize(&reflectNorm);
 	      
 	      //calculate specular color
-	      spec = pow(dot_prod(viewNorm, reflectNorm),SPHERE_GLOSS);
+	      spec = pow(dot_prod(&viewNorm, &reflectNorm),SPHERE_GLOSS);
               if (spec > 1)
 	      {
                  //calculate color
@@ -356,11 +354,11 @@ __device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
    return color;
 }
 
-__device__ double dot_prod(coord_t a, coord_t b){
-   return (a.x)*(b.x)+(a.y)*(b.y)+(a.z)*(b.z);
+__device__ double dot_prod(const coord_t *a, const coord_t *b){
+   return a->x * b->x + a->y * b->y + a->z * b->z;
 }
 
-__device__ coord_t cross_prod(coord_t a, coord_t b){
+__device__ coord_t cross_prod(const coord_t a, const coord_t b){
    coord_t c;
    c.x = a.y*b.z - a.z*b.y;
    c.y = a.z*b.x - a.x*b.z;
@@ -380,12 +378,11 @@ coord_t cross_prod_host(coord_t a, coord_t b){
 
 }
 
-__device__ coord_t normalize(coord_t a){
-   double mag = sqrt2((a.x)*(a.x)+(a.y)*(a.y)+(a.z)*(a.z));
-   a.x = (a.x)/mag;
-   a.y = (a.y)/mag;
-   a.z = (a.z)/mag;
-   return a;
+__device__ void normalize(coord_t *a){
+   double mag = sqrt2(dot_prod(a, a));
+   a->x = (a->x)/mag;
+   a->y = (a->y)/mag;
+   a->z = (a->z)/mag;
 }
 
 coord_t normalize_host(coord_t a){
