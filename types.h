@@ -52,10 +52,8 @@ typedef struct eye_struct {
 /* Sphere struct */
 typedef struct sphere_struct {
    coord_t center;
-   double radius;
    color_t color;
    double spec;
-   double glos;
    int name; 
 } sphere_t;
 

@@ -22,11 +22,21 @@
 #define LIGHT_Z 0.5
 #define LIGHT_C 1
 
+#define SPHERE_GLOSS 5
+#define SPHERE_RADIUS_SQRD .04
+
+#define TIMING
+
 __device__ double intercept_sphere(ray_t ray, sphere_t sphere);
-__device__ coord_t cross_prod(coord_t a, coord_t b);
-__device__ double dot_prod(coord_t a, coord_t b);
-__device__ coord_t normalize(coord_t a);
-//void doAnimation(Image *image);
+__device__ coord_t cross_prod(const coord_t a, const coord_t b);
+__device__ double dot_prod(const coord_t *a, const coord_t *b);
+__device__ void normalize(coord_t *a);
+__device__ float  sqrt2(const float x);
+float  sqrt2_host(const float x);
+
+coord_t cross_prod_host(coord_t a, coord_t b);
+coord_t normalize_host(coord_t a);
+
 
 // http://stackoverflow.com/questions/13245258/handle-error-not-found-error-in-cuda
 static void HandleError( cudaError_t err,
@@ -40,44 +50,39 @@ static void HandleError( cudaError_t err,
 }
 #define HANDLE_ERROR( err ) (HandleError( err, __FILE__, __LINE__ ))
 
-// in global memory: coord_t point, eye_t camera5, light_t light, color_t ambience, sphere_t* spheres
+// in global memory: coord_t point, eye_t camera5, light_t light, sphere_t* spheres
 __device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
-                 sphere_t sphere, color_t ambience, sphere_t *spheres);
+                 sphere_t sphere, sphere_t *spheres);
 
+#ifdef TIMING
 __global__ void RayTracer(sphere_t *spheres, uchar4 *output_buffer,
-        eye_t camera, light_t light, color_t ambience) 
+        eye_t camera, light_t light, int *runtime, coord_t n, coord_t u, coord_t v) 
+#else
+__global__ void RayTracer(sphere_t *spheres, uchar4 *output_buffer,
+        eye_t camera, light_t light, coord_t n, coord_t u, coord_t v) 
+#endif
 {
     int col = blockIdx.x * blockDim.x  + threadIdx.x;
     int row  = blockIdx.y * blockDim.y + threadIdx.y;
-    __shared__ sphere_t spheres_shared[NUM_SHAPES];
     coord_t s;
+
+#ifdef TIMING
+    clock_t start_time = clock();
+#endif
 
     // Bounds checking
     if (col > X_MAX || row > Y_MAX)
         return;
-
-    int idx = (threadIdx.x * blockDim.x + threadIdx.y) % NUM_SHAPES;
-    spheres_shared[idx] = spheres[idx];
-    __syncthreads();
 
     //Find x and y values at the screen
     // Coords with respect to eye
     s.x = -0.5+(((double)col)/X_MAX); 
     s.y = -0.5+(((double)row)/Y_MAX);
     s.z = 1;
-    
-    //convert to proper plane
-    coord_t n;
-    n.x = camera.eye.x-camera.look.x;
-    n.y = camera.eye.y-camera.look.y;
-    n.z = camera.eye.z-camera.look.z;
-    
-    coord_t u = cross_prod(camera.up,n);
-    coord_t v = cross_prod(n, u);
-    
-    u = normalize(u);
-    v = normalize(v);
-    n = normalize(n);
+
+#ifdef TIMING
+    if (row == 200 && col == 200) runtime[0] = (int)clock()-start_time;
+#endif
     
     // Convert from eye coordinate system to normal
     s.x = camera.eye.x + s.x*u.x + s.y*v.x + s.z*n.x; 
@@ -91,43 +96,55 @@ __global__ void RayTracer(sphere_t *spheres, uchar4 *output_buffer,
     curRay.dir.z = s.z - camera.eye.z;
     curRay.start = camera.eye; 
     curRay.t = -1;
+
+#ifdef TIMING
+    if (row == 200 && col == 200) runtime[1] = (int)clock()-start_time - runtime[0];
+#endif
     
     float t;
     sphere_t sphere;
     //check which objects intersect with ray
     for(int o = 0; o < NUM_SHAPES; o++){ //TODO more shapes
-       t = intercept_sphere(curRay, spheres_shared[o]);
+       t = intercept_sphere(curRay, spheres[o]);
        if ((t > 0 )&&((t < curRay.t) || (curRay.t < 0))){
           curRay.t = t;
-          sphere = spheres_shared[o];
+          sphere = spheres[o];
        }       
     }
+    
+#ifdef TIMING
+    if (row == 200 && col == 200) runtime[2] = (int)clock()-start_time - runtime[1];
+#endif
     
     // Put inside of DirectIllumination
     // Finds intersection from ray
     coord_t intercept;
+    int idx = row*(X_MAX+1)+col;
     if (curRay.t > 0)
     {
        intercept.x = (curRay.start.x)+curRay.t*(curRay.dir.x);
        intercept.y = (curRay.start.y)+curRay.t*(curRay.dir.y);
        intercept.z = (curRay.start.z)+curRay.t*(curRay.dir.z);
         // Change intercept to t
-        output_buffer[row*(X_MAX+1)+col] = DirectIllumination(intercept, light, curRay, sphere,
-                               ambience, spheres_shared);
+        output_buffer[idx] = DirectIllumination(intercept, light, curRay, sphere, spheres);
     }
     else
     {
-        output_buffer[row*(X_MAX+1)+col].w = 0;
-        output_buffer[row*(X_MAX+1)+col].x = 0;
-        output_buffer[row*(X_MAX+1)+col].y = 0;
-        output_buffer[row*(X_MAX+1)+col].z = 0;
+        output_buffer[idx].w = 0;
+        output_buffer[idx].x = 0;
+        output_buffer[idx].y = 0;
+        output_buffer[idx].z = 0;
     }
+
+#ifdef TIMING
+    if (row == 200 && col == 200) runtime[3] = (int)clock()-start_time - runtime[2];
+#endif
 }
 
 eye_t camera;
 light_t light;
 sphere_t spheres[NUM_SHAPES];
-color_t ambience;
+coord_t n, v, u;
 
 extern "C" void init_cuda()
 {
@@ -153,38 +170,64 @@ extern "C" void init_cuda()
   light.color.b = 1;
   
   // Set up sphere(s)
-    srand(time(NULL));
+    //srand(time(NULL));
 
     for(int s = 0; s < NUM_SHAPES; s++){
         spheres[s].center.x = ((double)rand() / ((double)RAND_MAX + 1) *2)-1;
         spheres[s].center.y = ((double)rand() / ((double)RAND_MAX + 1) *2)-1;
         spheres[s].center.z = 1.5+((double)rand() / ((double)RAND_MAX + 1) *2);
-        spheres[s].radius = .2;
         spheres[s].color.r = ((double)rand() / ((double)RAND_MAX + 1) );
         spheres[s].color.g = ((double)rand() / ((double)RAND_MAX + 1) );
         spheres[s].color.b = ((double)rand() / ((double)RAND_MAX + 1) );
         spheres[s].spec = .5;
-        spheres[s].glos = 10;
         spheres[s].name = s;
     }
   
-  //abient light
-  ambience.r = .2;
-  ambience.g = .2;
-  ambience.b = .2;
+    //convert to proper plane
+    n.x = camera.eye.x-camera.look.x;
+    n.y = camera.eye.y-camera.look.y;
+    n.z = camera.eye.z-camera.look.z;
+    
+    u = cross_prod_host(camera.up,n);
+    v = cross_prod_host(n, u);
+    
+    u = normalize_host(u);
+    v = normalize_host(v);
+    n = normalize_host(n);
 }
 
 extern "C" void run_cuda(uchar4 *dptr)
 {
   // current screen coordinates
   sphere_t *spheresd;
+#ifdef TIMING
+  int *runtime_d;
+  HANDLE_ERROR(cudaMalloc(&runtime_d, sizeof(int)*4));
+#endif
 
   HANDLE_ERROR(cudaMalloc(&spheresd, sizeof(sphere_t) * NUM_SHAPES));
+  HANDLE_ERROR(cudaMemcpy(spheresd, spheres, sizeof(sphere_t)*NUM_SHAPES, cudaMemcpyHostToDevice));
   HANDLE_ERROR(cudaMemcpy(spheresd, spheres, sizeof(sphere_t)*NUM_SHAPES, cudaMemcpyHostToDevice));
 
   dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
   dim3 gridDim((X_MAX+1+(BLOCK_SIZE-1))/BLOCK_SIZE, (Y_MAX+1+(BLOCK_SIZE)/BLOCK_SIZE));
-  RayTracer<<<gridDim, blockDim>>>(spheresd, dptr, camera, light, ambience);
+#ifdef TIMING
+  RayTracer<<<gridDim, blockDim>>>(spheresd, dptr, camera, light, runtime_d, n, u, v);
+#else
+  RayTracer<<<gridDim, blockDim>>>(spheresd, dptr, camera, light, n, u, v);
+#endif
+
+#ifdef TIMING
+  int runtime[4];
+  cudaMemcpy(&runtime, runtime_d, sizeof(int)*4, cudaMemcpyDeviceToHost);
+
+  cudaFree(runtime_d);
+#endif
+  cudaFree(spheresd);
+
+#ifdef TIMING
+  printf("%d %d %d %d\n", runtime[0], runtime[1], runtime[2], runtime[3]);
+#endif
 }
 
 __device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
@@ -199,26 +242,25 @@ __device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
    
   
    //find and check discriminant
-   discrim=(pow(dot_prod(ray.dir,temp),2)-(dot_prod(ray.dir,ray.dir))*(dot_prod(temp,temp)-pow(sphere.radius,2)));
+   double raydir_temp_dot = dot_prod(&ray.dir,&temp);
+   double raydir_raydir_dot = dot_prod(&ray.dir,&ray.dir);
+   double temp_temp_dot = dot_prod(&temp,&temp);
+
+   discrim=(raydir_temp_dot*raydir_temp_dot-(raydir_raydir_dot)*(temp_temp_dot-SPHERE_RADIUS_SQRD));
    
    if (discrim >= 0) {
-      t1 = ((-dot_prod(ray.dir,temp))+(sqrt(discrim)))/(dot_prod(ray.dir,ray.dir));
-      t2 = ((-dot_prod(ray.dir,temp))-(sqrt(discrim)))/(dot_prod(ray.dir,ray.dir));
-      
-      //Find first intercept at t
-      // Find closer
-      if(t1 <= t2){
-          return t1;  
-      }
-      else if (t2 <= t1){
-         return t2;
-      }
+      discrim = sqrt2(discrim);
+      t1 = ((-raydir_temp_dot)+(discrim))/(raydir_raydir_dot);
+      if (t1 < 0) return -1;
+      t2 = ((-raydir_temp_dot)-(discrim))/(raydir_raydir_dot);
+      return (t1<=t2)?t1:t2;
    }
    return -1;
 }
 
+
 __device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
-                 sphere_t sphere, color_t ambience, sphere_t *spheres){
+                 sphere_t sphere, sphere_t *spheres){
    coord_t surfNorm;
    coord_t lightNorm;
    coord_t viewNorm;
@@ -227,71 +269,78 @@ __device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
    ray_t lightRay;
    
    double diffuse;
-   double spec;
+   double spec = 0;
    uchar4 color;
-   
-   //calculate surface normal
-   surfNorm.x = point.x - sphere.center.x;
-   surfNorm.y = point.y - sphere.center.y;
-   surfNorm.z = point.z - sphere.center.z;
-   surfNorm = normalize(surfNorm);
-   
-   
+
    //calculate light normal
    lightNorm.x = light.loc.x-point.x;
    lightNorm.y = light.loc.y-point.y;
    lightNorm.z = light.loc.z-point.z;
    
-   //calculate diffuse color
-   diffuse = dot_prod(surfNorm,lightNorm);
-
-   if (diffuse > 1) diffuse = 1;
-   diffuse *= !(diffuse < 0);
-   
-   if(diffuse > 0) {
-      //calculate viewing normal
-      viewNorm.x = -ray.dir.x;
-      viewNorm.y = -ray.dir.y;
-      viewNorm.z = -ray.dir.z;
-      viewNorm = normalize(viewNorm);
-
-      //calculate reflection ray normal
-      reflectNorm.x = (2*surfNorm.x*diffuse)-lightNorm.x;
-      reflectNorm.y = (2*surfNorm.y*diffuse)-lightNorm.y;
-      reflectNorm.z = (2*surfNorm.z*diffuse)-lightNorm.z;
-      reflectNorm = normalize(reflectNorm);
-      
-      //calculate specular color
-      spec = pow(dot_prod(viewNorm, reflectNorm),sphere.glos);
-     
-      spec = (spec>1)?1:(spec<0?0:spec);
-
-      //check for shadows
-      float t = -1;
-      int noHit = 1;
-      lightRay.start = point;
-      lightRay.dir = lightNorm;
-      
-      for(int o = 0; o < NUM_SHAPES; o++){ 
-        if (sphere.name != spheres[o].name){
-         	t = intercept_sphere(lightRay, spheres[o]);
-         	if (t > 0){
-                noHit = 0;
-                break;
-		   }
-         }       
+   //check for shadows
+   int noHit = 1;
+   lightRay.start = point;
+   lightRay.dir = lightNorm;
+   for(int o = 0; o < NUM_SHAPES; o++){
+      if (sphere.name != spheres[o].name && (intercept_sphere(lightRay, spheres[o]) >= 0)) {
+         noHit = 0;
+         break;
       }
-      spec *= noHit;
-      diffuse *= noHit;
    }
-   else{
-     spec = 0;
-   }
-   
+
+   double r, g, b;
    //calculate color
-   double r = sphere.color.r*ambience.r + light.color.r*((sphere.color.r*diffuse) + (sphere.spec*spec));
-   double g = sphere.color.g*ambience.g + light.color.g*((sphere.color.g*diffuse) + (sphere.spec*spec));
-   double b = sphere.color.b*ambience.b + light.color.b*((sphere.color.b*diffuse) + (sphere.spec*spec));
+   r = sphere.color.r*.2;
+   g = sphere.color.g*.2;
+   b = sphere.color.b*.2;
+   if (noHit)
+   {
+	   //calculate surface normal
+	   surfNorm.x = point.x - sphere.center.x;
+	   surfNorm.y = point.y - sphere.center.y;
+	   surfNorm.z = point.z - sphere.center.z;
+	   normalize(&surfNorm);
+
+	   //calculate diffuse color
+	   diffuse = dot_prod(&surfNorm,&lightNorm);
+	   if (diffuse > 1) diffuse = 1;
+	   diffuse *= !(diffuse < 0);
+
+	   if(diffuse > 0) {
+	      r += light.color.r*(sphere.color.r*diffuse);
+	      g += light.color.g*(sphere.color.g*diffuse);
+	      b += light.color.b*(sphere.color.b*diffuse);
+	      //calculate viewing normal
+	      viewNorm.x = -ray.dir.x;
+	      viewNorm.y = -ray.dir.y;
+	      viewNorm.z = -ray.dir.z;
+	      normalize(&viewNorm);
+
+	      //calculate reflection ray normal
+	      reflectNorm.x = (2*surfNorm.x*diffuse)-lightNorm.x;
+	      reflectNorm.y = (2*surfNorm.y*diffuse)-lightNorm.y;
+	      reflectNorm.z = (2*surfNorm.z*diffuse)-lightNorm.z;
+	      normalize(&reflectNorm);
+	      
+	      //calculate specular color
+	      spec = pow(dot_prod(&viewNorm, &reflectNorm),SPHERE_GLOSS);
+              if (spec > 1)
+	      {
+                 //calculate color
+	         r += light.color.r*sphere.spec;
+	         g += light.color.g*sphere.spec;
+	         b += light.color.b*sphere.spec;
+	      }
+              else if (spec > 0)
+	      {
+                 //calculate color
+	         r += light.color.r*(sphere.spec*spec);
+	         g += light.color.g*(sphere.spec*spec);
+	         b += light.color.b*(sphere.spec*spec);
+	      }
+	   }
+   }
+
 
    r = r>1?1:r;
    g = g>1?1:g;
@@ -305,11 +354,11 @@ __device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
    return color;
 }
 
-__device__ double dot_prod(coord_t a, coord_t b){
-   return (a.x)*(b.x)+(a.y)*(b.y)+(a.z)*(b.z);
+__device__ double dot_prod(const coord_t *a, const coord_t *b){
+   return a->x * b->x + a->y * b->y + a->z * b->z;
 }
 
-__device__ coord_t cross_prod(coord_t a, coord_t b){
+__device__ coord_t cross_prod(const coord_t a, const coord_t b){
    coord_t c;
    c.x = a.y*b.z - a.z*b.y;
    c.y = a.z*b.x - a.x*b.z;
@@ -319,11 +368,41 @@ __device__ coord_t cross_prod(coord_t a, coord_t b){
 
 }
 
-__device__ coord_t normalize(coord_t a){
+coord_t cross_prod_host(coord_t a, coord_t b){
+   coord_t c;
+   c.x = a.y*b.z - a.z*b.y;
+   c.y = a.z*b.x - a.x*b.z;
+   c.z = a.x*b.y - a.y*b.x;
+   
+   return c;
+
+}
+
+__device__ void normalize(coord_t *a){
+   double mag = sqrt2(dot_prod(a, a));
+   a->x = (a->x)/mag;
+   a->y = (a->y)/mag;
+   a->z = (a->z)/mag;
+}
+
+coord_t normalize_host(coord_t a){
    double mag = sqrt((a.x)*(a.x)+(a.y)*(a.y)+(a.z)*(a.z));
    a.x = (a.x)/mag;
    a.y = (a.y)/mag;
    a.z = (a.z)/mag;
    return a;
 }
-
+#define SQRT_MAGIC_F 0x5f3759df 
+__device__ float  sqrt2(float x)
+{
+  const float xhalf = 0.5f*x;
+ 
+  union // get bits for floating value
+  {
+    float x;
+    int i;
+  } u;
+  u.x = x;
+  u.i = SQRT_MAGIC_F - (u.i >> 1);  // gives initial guess y0
+  return x*u.x*(1.5f - xhalf*u.x*u.x);// Newton step, repeating increases accuracy 
+}
