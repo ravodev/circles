@@ -164,7 +164,7 @@ extern "C" void init_cuda()
         spheres[s].color.g = ((double)rand() / ((double)RAND_MAX + 1) );
         spheres[s].color.b = ((double)rand() / ((double)RAND_MAX + 1) );
         spheres[s].spec = .5;
-        spheres[s].glos = 5;
+        spheres[s].glos = 10;
         spheres[s].name = s;
     }
   
