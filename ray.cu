@@ -251,7 +251,9 @@ __device__ double intercept_sphere(ray_t ray, sphere_t sphere) {
    if (discrim >= 0) {
       discrim = sqrt2(discrim);
       t1 = ((-raydir_temp_dot)+(discrim))/(raydir_raydir_dot);
+      if (t1 < 0) return -1;
       t2 = ((-raydir_temp_dot)-(discrim))/(raydir_raydir_dot);
+      if (t2 < 0) return -1;
       return (t1<=t2)?t1:t2;
    }
    return -1;
@@ -305,10 +307,10 @@ __device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
 	   if (diffuse > 1) diffuse = 1;
 	   diffuse *= !(diffuse < 0);
 
-	   r += light.color.r*(sphere.color.r*diffuse);
-	   g += light.color.g*(sphere.color.g*diffuse);
-	   b += light.color.b*(sphere.color.b*diffuse);
 	   if(diffuse > 0) {
+	      r += light.color.r*(sphere.color.r*diffuse);
+	      g += light.color.g*(sphere.color.g*diffuse);
+	      b += light.color.b*(sphere.color.b*diffuse);
 	      //calculate viewing normal
 	      viewNorm.x = -ray.dir.x;
 	      viewNorm.y = -ray.dir.y;
@@ -323,11 +325,20 @@ __device__ uchar4 DirectIllumination(coord_t point, light_t light, ray_t ray,
 	      
 	      //calculate specular color
 	      spec = pow(dot_prod(viewNorm, reflectNorm),SPHERE_GLOSS);
-	      spec = (spec>1)?1:(spec<0?0:spec);
-              //calculate color
-	      r += light.color.r*(sphere.spec*spec);
-	      g += light.color.g*(sphere.spec*spec);
-	      b += light.color.b*(sphere.spec*spec);
+              if (spec > 1)
+	      {
+                 //calculate color
+	         r += light.color.r*sphere.spec;
+	         g += light.color.g*sphere.spec;
+	         b += light.color.b*sphere.spec;
+	      }
+              else if (spec > 0)
+	      {
+                 //calculate color
+	         r += light.color.r*(sphere.spec*spec);
+	         g += light.color.g*(sphere.spec*spec);
+	         b += light.color.b*(sphere.spec*spec);
+	      }
 	   }
    }
 
