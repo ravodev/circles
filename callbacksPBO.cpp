@@ -4,6 +4,10 @@
 #include <GL/freeglut.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
+#include "types.h"
+
+#define NUM_SHAPES 100
 
 // variables for keyboard control
 int animFlag=1;
@@ -21,6 +25,16 @@ extern void moveUp();
 extern void moveDown();
 extern void moveLeft();
 extern void moveRight();
+
+//Mouse
+float lastPos[3] = {0.0, 0.0, 0.0};
+int curx, cury;
+int startX, startY;
+bool trackingMouse = false;
+bool redrawContinue = false;
+bool moveState = false;
+bool zoomState = false;
+extern sphere_t spheres[NUM_SHAPES];
 
 // The user must create the following routines:
 void runCuda();
@@ -79,11 +93,81 @@ void keyboard(unsigned char key, int x, int y)
    glutPostRedisplay();
 }
 
-// No mouse event handlers defined
-void mouse(int button, int state, int x, int y)
-{
+void motion(int x, int y) {
+   float curPos[3], dx, dy, dz;
+
+	if(moveState==true){
+		curPos[0] = x;
+		curPos[1] = y;
+		dx = curPos[0] - lastPos[0];
+		dy = curPos[1] - lastPos[1];
+	
+
+		 for(int s = 0; s < NUM_SHAPES; s++){
+		    if (dx) spheres[s].center.x += dx *0.001;
+		    if (dy) spheres[s].center.y += dy *0.001;
+		 }
+		lastPos[0] = curPos[0];
+		lastPos[1] = curPos[1];
+
+	}
+	else if(zoomState==true){
+		curPos[1] = y;
+		dy = curPos[1] - lastPos[1];
+	
+		 for(int s = 0; s < NUM_SHAPES; s++){
+		    if (dy) spheres[s].center.z += dy *0.001;
+		 }
+		lastPos[1] = curPos[1];
+
+	}
+	glutPostRedisplay( );
+
+}
+void startMotion(long time, int button, int x, int y) {
+   trackingMouse = true;
+   redrawContinue = false;
+   startX = x; startY = y;
+   curx = x; cury = y;
 }
 
-void motion(int x, int y)
-{
+void stopMotion(long time, int button, int x, int y) {
+   
+   trackingMouse = false;
+
+   if (startX != x || startY != y)
+      redrawContinue = true;
+   else {
+      redrawContinue = false;
+   }
+	
 }
+void mouse(int button, int state, int x, int y)
+{
+	switch (state) {
+      case GLUT_DOWN:
+         if (button == GLUT_LEFT_BUTTON) {
+            moveState = true;
+				lastPos[0] = x;
+            lastPos[1] = y;
+         }
+         else if (button == GLUT_MIDDLE_BUTTON) {
+            zoomState = true;
+            lastPos[1] = y;
+         }
+         else startMotion(0, 1, x, y);
+         break;
+      case GLUT_UP:
+         if (button == GLUT_LEFT_BUTTON) {
+            moveState = false;
+         }
+         else if (button == GLUT_MIDDLE_BUTTON) {
+            zoomState = false;
+         }
+         else stopMotion(0, 1, x, y);
+         break;
+   }
+
+}
+
+
