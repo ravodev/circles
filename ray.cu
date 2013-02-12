@@ -11,7 +11,8 @@
 #include "types.h"
 #include <time.h>
 
-#define NUM_SHAPES 100
+#define NUM_SHAPES 153
+#define PIE 3.14159
 #define X_MAX 1023
 #define Y_MAX 1023
 
@@ -23,7 +24,7 @@
 #define LIGHT_C 1
 
 #define SPHERE_GLOSS 5
-#define SPHERE_RADIUS_SQRD .04
+#define SPHERE_RADIUS_SQRD .015
 
 //#define TIMING
 
@@ -162,9 +163,9 @@ extern "C" void init_cuda()
   camera.up.z = 0;
   
   // Set up light
-  light.loc.x = 1;
+  light.loc.x = 0;
   light.loc.y = 0;
-  light.loc.z = 0.5;
+  light.loc.z = 1;
   light.color.r = 1;
   light.color.g = 1;
   light.color.b = 1;
@@ -172,16 +173,86 @@ extern "C" void init_cuda()
   // Set up sphere(s)
     srand(time(NULL));
 
-    for(int s = 0; s < NUM_SHAPES; s++){
-        spheres[s].center.x = ((double)rand() / ((double)RAND_MAX + 1) *2)-1;
-        spheres[s].center.y = ((double)rand() / ((double)RAND_MAX + 1) *2)-1;
-        spheres[s].center.z = 1.5+((double)rand() / ((double)RAND_MAX + 1) *2);
+
+	 int s = 0;
+	/* double radius = 1;
+	 double center = 0;
+    for(int i = 0; i < 10*PIE; i++){
+        spheres[s].center.x = center + radius * cos(((float)i)/5);
+        spheres[s].center.y = center + radius * sin(((float)i)/5);
+        spheres[s].center.z = 2;
         spheres[s].color.r = ((double)rand() / ((double)RAND_MAX + 1) );
         spheres[s].color.g = ((double)rand() / ((double)RAND_MAX + 1) );
         spheres[s].color.b = ((double)rand() / ((double)RAND_MAX + 1) );
         spheres[s].spec = .5;
         spheres[s].name = s;
+		  s++;
+    }*/
+
+	// trunck 20 spheres
+/*	for(int i = 0; i < 20; i++){
+        spheres[s].center.x = 0;
+        spheres[s].center.y = (double)i/20;
+        spheres[s].center.z = 2;
+		  if(i%2){
+			 spheres[s].color.r = .6;
+       	 spheres[s].color.g = .3;
+        	 spheres[s].color.b = .1;
+			}
+			else{
+				spheres[s].color.r = .5;
+       	 	spheres[s].color.g = .2;
+        		spheres[s].color.b = .1;
+			}
+        spheres[s].spec = 0;
+        spheres[s].name = s;
+		  s++;
     }
+
+	// leaves 62 spheres
+	 double radius;
+	 double center = 0;
+    for(int i = 0; i < 20*PIE; i++){
+	 	  radius = ((double)rand() / ((double)RAND_MAX + 1)/3);
+        spheres[s].center.x = center + radius * cos(((float)i)/5);
+        spheres[s].center.y = center + radius * sin(((float)i)/5);
+        spheres[s].center.z = 1.75+((double)rand() / ((double)RAND_MAX + 1)/2);
+        spheres[s].color.r = ((double)rand() / ((double)RAND_MAX + 1)/10);
+        spheres[s].color.g = .7+ ((double)rand() / ((double)RAND_MAX + 1)/5);
+        spheres[s].color.b = .2+ ((double)rand() / ((double)RAND_MAX + 1)/10);
+        spheres[s].spec = .3;
+        spheres[s].name = s;
+		  s++;
+    }
+*/
+	// lolly stick 20 spheres
+	for(int i = 0; i < 20; i++){
+        spheres[s].center.x = 0;
+        spheres[s].center.y = (double)i/10;
+        spheres[s].center.z = 2;
+			 spheres[s].color.r = 1;
+       	 spheres[s].color.g = 1;
+        	 spheres[s].color.b = 1;
+        spheres[s].spec = 0;
+        spheres[s].name = s;
+		  s++;
+    }
+	// lolly lot spheres
+	 double radius = 0;
+	 double center = 0;
+    for(int i = 0; i < 42.5*PIE; i++){
+	 	  radius = radius + .1/55*PIE;
+        spheres[s].center.x = center + radius * cos(((float)i)/5);
+        spheres[s].center.y = center + radius * sin(((float)i)/5)-0.7;
+        spheres[s].center.z = 2;
+        spheres[s].color.r = ((double)rand() / ((double)RAND_MAX + 1)/1.3);
+        spheres[s].color.g = 0*((double)rand() / ((double)RAND_MAX + 1)/10);
+        spheres[s].color.b = ((double)rand() / ((double)RAND_MAX + 1)/1.3);
+        spheres[s].spec = .3;
+        spheres[s].name = s;
+		  s++;
+    }
+	
   
     //convert to proper plane
     n.x = camera.eye.x-camera.look.x;

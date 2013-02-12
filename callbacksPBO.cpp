@@ -7,7 +7,7 @@
 #include <math.h>
 #include "types.h"
 
-#define NUM_SHAPES 100
+#define NUM_SHAPES 153
 
 // variables for keyboard control
 int animFlag=1;
@@ -35,6 +35,7 @@ bool redrawContinue = false;
 bool moveState = false;
 bool zoomState = false;
 extern sphere_t spheres[NUM_SHAPES];
+extern light_t light;
 
 // The user must create the following routines:
 void runCuda();
@@ -103,7 +104,8 @@ void motion(int x, int y) {
 		dx = curPos[0] - lastPos[0];
 		dy = curPos[1] - lastPos[1];
 	
-
+		if (dx) light.loc.x += dx *0.001;
+		if (dy) light.loc.y += dy *0.001;
 		 for(int s = 0; s < NUM_SHAPES; s++){
 		    if (dx) spheres[s].center.x += dx *0.001;
 		    if (dy) spheres[s].center.y += dy *0.001;
@@ -116,6 +118,7 @@ void motion(int x, int y) {
 		curPos[1] = y;
 		dy = curPos[1] - lastPos[1];
 	
+		if (dy) light.loc.z += dy *0.001;
 		 for(int s = 0; s < NUM_SHAPES; s++){
 		    if (dy) spheres[s].center.z += dy *0.001;
 		 }
